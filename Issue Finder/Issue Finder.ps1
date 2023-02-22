@@ -1,89 +1,104 @@
-#TMC Inital Commit 2/10/23
-#Rev 5 2/20/23
+#Init Commit 2/10/23
+#Rev 6 2/21/23
+
 class ExcelFileAnalyzer {
-    [string]$Directory
-    [string[]]$FileExtensions = @('*.xlsx')
-    [bool]$Recurse
-    [System.Collections.Generic.List[PSObject]]$Report = @()
+  [string]$FilePath
+  [bool]$ExcessiveBlankRows
+  [bool]$ExcessiveBlankColumns
+  [bool]$UnusedWorksheets
+  [bool]$ExcessiveFormulas
+  [bool]$ExcessiveConditionalFormatting
+  [bool]$ExcessiveDataValidation
 
-    [void] Analyze() {
-        $excel = New-Object -ComObject Excel.Application
-        $excel.Visible = $false
+  ExcelFileAnalyzer($filePath) {
+    $this.FilePath = $filePath
+  }
 
-        try {
-            $excelFiles = Get-ChildItem -Path $this.Directory -Filter $this.FileExtensions -Recurse:$this.Recurse
+  [void]Analyze() {
+    $excel = New-Object -ComObject Excel.Application
+    $workbook = $excel.Workbooks.Open($this.FilePath)
 
-            foreach ($file in $excelFiles) {
-                Write-Host "Analyzing $($file.FullName)"
+    $usedRange = $workbook.ActiveSheet.UsedRange
+    $usedRows = $usedRange.Rows.Count
+    $usedColumns = $usedRange.Columns.Count
+    $totalRows = $workbook.ActiveSheet.Rows.Count
+    $totalColumns = $workbook.ActiveSheet.Columns.Count
 
-                $workbook = $excel.Workbooks.Open($file.FullName)
-
-                try {
-                    $reportRow = $this.AnalyzeWorkbook($workbook, $file.FullName)
-                    $this.Report.Add($reportRow)
-                }
-                finally {
-                    $workbook.Close($false)
-                }
-            }
-        }
-        finally {
-            $excel.Quit()
-            [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null
-            Remove-Variable excel
-        }
+    if ($totalRows - $usedRows - 1 -gt 0) {
+      $this.ExcessiveBlankRows = $true
     }
 
-    [PSObject] AnalyzeWorkbook($workbook, $fileName) {
-        $sheet = $workbook.ActiveSheet
-        $usedRange = $sheet.UsedRange
-        $usedRows = $usedRange.Rows.Count
-        $usedColumns = $usedRange.Columns.Count
-        $totalRows = $sheet.Rows.Count
-        $totalColumns = $sheet.Columns.Count
+    if ($totalColumns - $usedColumns - 1 -gt 0) {
+      $this.ExcessiveBlankColumns = $true
+    }
 
-        $excessiveBlankRows = $totalRows - $usedRows - 1 -gt 0
-        $excessiveBlankColumns = $totalColumns - $usedColumns - 1 -gt 0
+    $sheetCount = $workbook.Sheets.Count
+    $usedSheetCount = 0
 
-        $sheetCount = $workbook.Sheets.Count
-        $usedSheetCount = 0
-        for ($i = 1; $i -le $sheetCount; $i++) {
-            $sheet = $workbook.Sheets.Item($i)
-            if ($sheet.Visible -eq -1) {
-                $usedSheetCount++
-            }
+    for ($i = 1; $i -le $sheetCount; $i++) {
+      $sheet = $workbook.Sheets.Item($i)
+
+      if ($sheet.Visible -eq -1) {
+        $usedSheetCount++
+      }
+    }
+
+    if ($sheetCount -gt $usedSheetCount) {
+      $this.UnusedWorksheets = $true
+    }
+
+    $formulaCount = 0
+    $range = $workbook.ActiveSheet.UsedRange
+
+    for ($row = 1; $row -le $usedRows; $row++) {
+      for ($column = 1; $column -le $usedColumns; $column++) {
+        $cell = $range.Cells.Item($row, $column)
+
+        if ($cell.HasFormula) {
+          $formulaCount++
         }
-        $unusedWorksheets = $sheetCount - $usedSheetCount -gt 0
+      }
+    }
 
-        $formulaCount = 0
-        $range = $sheet.UsedRange
-        for ($row = 1; $row -le $usedRows; $row++) {
-            for ($column = 1; $column -le $usedColumns; $column++) {
-                $cell = $range.Cells.Item($row, $column)
-                if ($cell.HasFormula) {
-                    $formulaCount++
-                }
-            }
+    if ($formulaCount -gt 5000) {
+      $this.ExcessiveFormulas = $true
+    }
+
+    $conditionalFormattingCount = $workbook.ActiveSheet.Range("A1").FormatConditions.Count
+
+    if ($conditionalFormattingCount -gt 100) {
+      $this.ExcessiveConditionalFormatting = $true
+    }
+
+    $dataValidationCount = 0
+
+    for ($row = 1; $row -le $usedRows; $row++) {
+      for ($column = 1; $column -le $usedColumns; $column++) {
+        $cell = $range.Cells.Item($row, $column)
+
+        if ($cell.Validation.Type -ne 0) {
+          $dataValidationCount++
         }
-        $excessiveFormulas = $formulaCount -gt 5000
+      }
+    }
 
-        $conditionalFormattingCount = $sheet.Cells.FormatConditions.Count
-        $excessiveConditionalFormatting = $conditionalFormattingCount -gt 100
+    if ($dataValidationCount -gt 100) {
+      $this.ExcessiveDataValidation = $true
+    }
+  }
+}
 
-        $dataValidationCount = 0
-        $range = $sheet.UsedRange
-        for ($row = 1; $row -le $usedRows; $row++) {
-            for ($column = 1; $column -le $usedColumns; $column++) {
-                $cell = $range.Cells.Item($row, $column)
-                if ($cell.Validation -and $cell.Validation.Type -ne 0) {
-                    $dataValidationCount++
-                }
-            }
-        }
-        $excessiveDataValidation = $dataValidationCount -gt 100
+$directory = "C:\ExcelFiles"
+$excelFiles = Get-ChildItem -Path $directory -Filter *.xlsx -Recurse
+$analyzers = @()
 
-        # Check the workbook's CompatibilityChecker.CheckCompatibility property
-        $compatibilityChecker = $workbook.CheckCompatibility
-        $needsCompatibilityUpdate = !$compatibilityChecker.CheckCompatibility
+foreach ($file in $excelFiles) {
+  $analyzer = [ExcelFileAnalyzer]::new($file.FullName)
+  $analyzer.Analyze()
+  $analyzers += $analyzer
+}
 
-       
+$report = $analyzers | Select-Object FilePath, ExcessiveBlankRows, ExcessiveBlankColumns, UnusedWorksheets, ExcessiveFormulas, ExcessiveConditionalFormatting, ExcessiveDataValidation
+
+$report | Export-Csv -Path "C:\ExcelFilesReport.csv" -NoTypeInformation
+
