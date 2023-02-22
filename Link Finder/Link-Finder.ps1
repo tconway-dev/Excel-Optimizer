@@ -1,40 +1,81 @@
 #TMC 2/10/23
-#Rev 5 2/15/23
-Add-Type -AssemblyName Microsoft.Office.Interop.Excel
+#Rev 10 2/18/23
+#OOP Change 
+class ExcelFile {
+    [string] $Name
+    [string] $Path
+    [string[]] $LinkedWorksheets
+    [string[]] $LinkedWorkbooks
+    [string[]] $OleDbConnections
 
-$Excel = New-Object -ComObject Excel.Application
-$Excel.Visible = $False
-
-$SearchPath = "C:\Users\<Username>\<Path to directory>"
-$CSVFile = "C:\Users\<Username>\<Path to output file>.csv"
-
-try {
-    # Check if the output file already exists and if so, delete it.
-    if (Test-Path $CSVFile) {
-        Remove-Item $CSVFile
+    ExcelFile([string] $name, [string] $path) {
+        $this.Name = $name
+        $this.Path = $path
+        $this.LinkedWorksheets = @()
+        $this.LinkedWorkbooks = @()
+        $this.OleDbConnections = @()
     }
 
-    Get-ChildItem -Path $SearchPath -Filter *.xlsx -Recurse | ForEach-Object {
-        $Workbook = $Excel.Workbooks.Open($_.FullName)
+    [void] AddLinkedWorksheet([string] $worksheet) {
+        $this.LinkedWorksheets += $worksheet
+    }
 
-        $Links = @()
-        $Links += ($Workbook.LinkSources([Microsoft.Office.Interop.Excel.XlLinkType]::xlExcelLinks)) | Select-Object -ExpandProperty Text
+    [void] AddLinkedWorkbook([string] $workbook) {
+        $this.LinkedWorkbooks += $workbook
+    }
 
-        if ($Links.Count -gt 0) {
-            [PSCustomObject]@{
-                FileName = $_.Name
-                FilePath = $_.FullName
-                Links = ($Links -Join ";")
-            } | Export-Csv -Path $CSVFile -Append -NoTypeInformation -Delimiter ","
+    [void] AddOleDbConnection([string] $name, [string] $connection) {
+        $this.OleDbConnections += "$name: $connection"
+    }
+}
+
+class ExcelFileProcessor {
+    [Microsoft.Office.Interop.Excel.Application] $Excel
+    [string] $SearchPath
+    [string] $CSVFile
+
+    ExcelFileProcessor([string] $searchPath, [string] $csvFile) {
+        # Validate input
+        if ([string]::IsNullOrWhiteSpace($searchPath)) {
+            throw "Search path cannot be empty or null."
+        }
+        if ([string]::IsNullOrWhiteSpace($csvFile)) {
+            throw "CSV file path cannot be empty or null."
         }
 
-        $Workbook.Close($False)
-        Remove-Variable Workbook
+        # Initialize Excel application
+        $this.Excel = New-Object -ComObject Excel.Application
+        $this.Excel.Visible = $false
+
+        $this.SearchPath = $searchPath
+        $this.CSVFile = $csvFile
     }
-} catch {
-    Write-Error $_.Exception.Message
-} finally {
-    $Excel.Quit()
-    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Excel) | Out-Null
-    Remove-Variable Excel
-}
+
+    [ExcelFile] GetExcelFileInfo([string] $filePath) {
+        $file = New-Object ExcelFile -ArgumentList (Split-Path $filePath -Leaf), $filePath
+
+        try {
+            # Open Excel workbook
+            $workbook = $this.Excel.Workbooks.Open($filePath)
+
+            # Get linked worksheets
+            $linkedWorksheets = ($workbook.LinkSources([Microsoft.Office.Interop.Excel.XlLinkType]::xlExcelLinks)) | Select-Object -ExpandProperty Text
+            foreach ($linkedWorksheet in $linkedWorksheets) {
+                $file.AddLinkedWorksheet($linkedWorksheet)
+            }
+
+            # Get linked workbooks
+            $linkedWorkbooks = ($workbook.LinkSources([Microsoft.Office.Interop.Excel.XlLinkType]::xlExcelLinks)) | Select-Object -ExpandProperty FullName
+            foreach ($linkedWorkbook in $linkedWorkbooks) {
+                $file.AddLinkedWorkbook($linkedWorkbook)
+            }
+
+            # Get OLE DB connections
+            $oleDbConnections = $workbook.Connections
+            foreach ($oleDbConnection in $oleDbConnections) {
+                $file.AddOleDbConnection($oleDbConnection.Name, $oleDbConnection.Connection)
+            }
+        }
+        catch {
+            Write-Error "Error processing file: $($_.FullName)"
+        }
