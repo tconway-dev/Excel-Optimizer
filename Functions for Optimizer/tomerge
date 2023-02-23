@@ -1,0 +1,21 @@
+[Microsoft.Office.Interop.Excel.Workbook]OpenWorkbook([string]$path, [bool]$readOnly = $false) {
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $excel.DisplayAlerts = $false
+    $excel.AskToUpdateLinks = $false
+
+    if ($readOnly) {
+        $workbook = $excel.Workbooks.Open($path, 1, $true) # 1 = normal mode with write access denied
+    } else {
+        $workbook = $excel.Workbooks.Open($path)
+    }
+
+    if ($workbook -eq $null) {
+        Write-Error "Failed to open workbook: $path"
+        return $null
+    } else {
+        return $workbook
+    }
+}
+#fix testing
+
