@@ -1,8 +1,9 @@
 #TMC 2/10/23
 #Rev 11 2/22/23
-#OOP Change 
 Add-Type -AssemblyName Microsoft.Office.Interop.Excel
 Add-Type -AssemblyName System.Data
+Add-Type -AssemblyName System.Collections.Generic
+
 class ExcelFileAnalyzer {
     [System.Collections.Generic.List[PSObject]]$results
 
@@ -85,8 +86,9 @@ class ExcelFileAnalyzer {
         return $connections
     }
     }
-    # Example Run:
+    # Example usage:
     $analyzer = New-Object ExcelFileAnalyzer
-    $analyzer.AnalyzeDirectory("C:\Path\To\Directory")
-    $analyzer.results | Export-Csv "C:\Path\To\Results.csv" -NoTypeInformation
+    $analyzer.AnalyzeDirectory("C:\ExcelFiles")
+    $analyzer.results | Export-Csv "C:\ExcelFiles\Results.csv" -NoTypeInformation
     
+
