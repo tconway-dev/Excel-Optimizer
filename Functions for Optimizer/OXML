@@ -58,7 +58,7 @@ class ExcelFileAnalyzer {
         $doc.Close()
         return $connections
     }
-}
+} # End
 
 # Example usage:
 $analyzer = New-Object ExcelFileAnalyzer
