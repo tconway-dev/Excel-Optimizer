@@ -1,0 +1,66 @@
+Add-Type -AssemblyName DocumentFormat.OpenXml
+
+class ExcelFileAnalyzer {
+    [System.Collections.Generic.List[PSObject]]$results
+
+    ExcelFileAnalyzer() {
+        $this.results = [System.Collections.Generic.List[PSObject]]::new()
+    }
+
+    [void]AnalyzeDirectory([string]$path) {
+        $files = Get-ChildItem -Path $path -Include *.xls,*.xlsx -Recurse
+        foreach ($file in $files) {
+            $linkedWorksheets = $this.GetLinkedWorksheets($file.FullName)
+            $linkedWorkbooks = $this.GetLinkedWorkbooks($file.FullName)
+            $connections = $this.GetOleDbConnections($file.FullName)
+
+            if ($linkedWorksheets.Count -gt 0 -or $linkedWorkbooks.Count -gt 0 -or $connections.Count -gt 0) {
+                $result = [PSCustomObject]@{
+                    FileName = $file.Name
+                    FilePath = $file.FullName
+                    LinkedWorksheets = $linkedWorksheets -join ";"
+                    LinkedWorkbooks = $linkedWorkbooks -join ";"
+                    Connections = $connections -join ";"
+                }
+                $this.results.Add($result)
+            }
+        }
+    }
+
+    [string[]]GetLinkedWorksheets([string]$path) {
+        $worksheets = @()
+        $doc = [DocumentFormat.OpenXml.Packaging.WorkbookDocument]::Open($path, $false)
+        $doc.Workbook.Descendants().OfType([DocumentFormat.OpenXml.Spreadsheet.ExternalSheetData]).ForEach({
+            $_.Descendants().OfType([DocumentFormat.OpenXml.Spreadsheet.SheetReference]).ForEach({
+                $worksheets += $_.Value
+            })
+        })
+        $doc.Close()
+        return $worksheets
+    }
+
+    [string[]]GetLinkedWorkbooks([string]$path) {
+        $workbooks = @()
+        $doc = [DocumentFormat.OpenXml.Packaging.WorkbookDocument]::Open($path, $false)
+        $doc.Workbook.Descendants().OfType([DocumentFormat.OpenXml.Spreadsheet.ExternalReference]).ForEach({
+            $workbooks += $_.Uri.Value
+        })
+        $doc.Close()
+        return $workbooks
+    }
+
+    [string[]]GetOleDbConnections([string]$path) {
+        $connections = @()
+        $doc = [DocumentFormat.OpenXml.Packaging.WorkbookDocument]::Open($path, $false)
+        $doc.Workbook.Descendants().OfType([DocumentFormat.OpenXml.Spreadsheet.Connection]).ForEach({
+            $connections += $_.ConnectionId.Value + ":" + $_.ConnectionString.Value
+        })
+        $doc.Close()
+        return $connections
+    }
+}
+
+# Example usage:
+$analyzer = New-Object ExcelFileAnalyzer
+$analyzer.AnalyzeDirectory("C:\ExcelFiles")
+$analyzer.results | Export-Csv "C:\ExcelFiles\Results.csv" -NoTypeInformation
