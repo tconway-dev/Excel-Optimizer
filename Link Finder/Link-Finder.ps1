@@ -1,11 +1,13 @@
 #TMC 2/10/23
 #Rev 11 2/22/23
 #OOP Change 
+Add-Type -AssemblyName Microsoft.Office.Interop.Excel
+Add-Type -AssemblyName System.Data
 class ExcelFileAnalyzer {
-    [System.Collections.ArrayList]$results
+    [System.Collections.Generic.List[PSObject]]$results
 
     ExcelFileAnalyzer() {
-        $this.results = New-Object System.Collections.ArrayList
+        $this.results = [System.Collections.Generic.List[PSObject]]::new()
     }
 
     [void]AnalyzeDirectory([string]$path) {
@@ -25,10 +27,12 @@ class ExcelFileAnalyzer {
                         LinkedWorkbooks = $linkedWorkbooks -join ";"
                         Connections = $connections -join ";"
                     }
-                    $this.results.Add($result) | Out-Null
+                    $this.results.Add($result)
                 }
                 $workbook.Close($false)
+                [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbook) | Out-Null
             }
+            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($file) | Out-Null
         }
     }
 
@@ -38,18 +42,17 @@ class ExcelFileAnalyzer {
         $excel.DisplayAlerts = $false
         $excel.AskToUpdateLinks = $false
 
-        if ($readOnly) {
-            $workbook = $excel.Workbooks.Open($path, 3, $true) # 3 = read-only mode
-        } else {
-            $workbook = $excel.Workbooks.Open($path)
+        $options = @{
+            FilePath = $path
+            ReadOnly = $readOnly
+            UpdateLinks = 0
         }
+        $workbook = $excel.Workbooks.Open($options)
 
-        if ($workbook -eq $null) {
+        if(!$workbook) {
             Write-Error "Failed to open workbook: $path"
-            return $null
-        } else {
-            return $workbook
         }
+        return $workbook
     }
 
     [string[]]GetLinkedWorksheets([Microsoft.Office.Interop.Excel.Workbook]$workbook) {
@@ -69,27 +72,21 @@ class ExcelFileAnalyzer {
             return @()
         }
     }
-
     [string[]]GetOleDbConnections([Microsoft.Office.Interop.Excel.Workbook]$workbook) {
         $connections = @()
         foreach ($connection in $workbook.Connections) {
             $connectionStrings = $connection.OLEDBConnection.Connection
             if ($connectionStrings -is [System.Array]) {
-                $connectionStrings | ForEach-Object { $connection.Name + ":" + $_ }
+                $connectionStrings | ForEach-Object { $connections += $connection.Name + ":" + $_ }
             } else {
-                $connection.Name + ":" + $connectionStrings
+                $connections += $connection.Name + ":" + $connectionStrings
             }
-            $connections += $connectionStrings
         }
         return $connections
     }
-}
-   
-# Initialize the ExcelFileAnalyzer class
-$analyzer = New-Object ExcelFileAnalyzer
-
-# Analyze the directory and get the results
-$analyzer.AnalyzeDirectory("C:\path\to\directory")
-
-# Output the results to a CSV file
-$analyzer.results | Export-Csv -Path "C:\path\to\output.csv" -NoTypeInformation
+    }
+    # Example Run:
+    $analyzer = New-Object ExcelFileAnalyzer
+    $analyzer.AnalyzeDirectory("C:\Path\To\Directory")
+    $analyzer.results | Export-Csv "C:\Path\To\Results.csv" -NoTypeInformation
+    
