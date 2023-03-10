@@ -37,24 +37,29 @@ class ExcelFileAnalyzer {
         }
     }
 
-    [Microsoft.Office.Interop.Excel.Workbook]OpenWorkbook([string]$path, [bool]$readOnly = $false) {
-        $excel = New-Object -ComObject Excel.Application
-        $excel.Visible = $false
-        $excel.DisplayAlerts = $false
-        $excel.AskToUpdateLinks = $false
+   [Microsoft.Office.Interop.Excel.Workbook]OpenWorkbook([string]$path, [bool]$readOnly = $false) {
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $excel.DisplayAlerts = $false
+    $excel.AskToUpdateLinks = $false
 
-        $options = @{
-            FilePath = $path
-            ReadOnly = $readOnly
-            UpdateLinks = 0
-        }
-        $workbook = $excel.Workbooks.Open($options)
-
-        if(!$workbook) {
-            Write-Error "Failed to open workbook: $path"
-        }
-        return $workbook
+    $options = @{
+        FilePath = $path
+        ReadOnly = $readOnly
+        UpdateLinks = 0
     }
+    $workbook = $excel.Workbooks.Open($options)
+
+    if(!$workbook) {
+        Write-Error "Failed to open workbook: $path"
+    } elseif ($workbook.Password) {
+        Write-Warning "Skipping password-protected workbook: $path"
+        $workbook.Close($false)
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbook) | Out-Null
+        $workbook = $null
+    }
+    return $workbook
+}
 
     [string[]]GetLinkedWorksheets([Microsoft.Office.Interop.Excel.Workbook]$workbook) {
         $links = $workbook.LinkSources([Microsoft.Office.Interop.Excel.XlLinkType]::xlExcelLinks)
