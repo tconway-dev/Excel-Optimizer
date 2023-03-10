@@ -12,7 +12,7 @@ class ExcelFileAnalyzer {
     }
 
     [void]AnalyzeDirectory([string]$path) {
-        $files = Get-ChildItem -Path $path -Include *.xls,*.xlsx -Recurse
+        $files = Get-ChildItem -Path $path -Filter *.xls,*.xlsx -Recurse
         foreach ($file in $files) {
             $workbook = $this.OpenWorkbook($file.FullName, $true)
             if ($workbook) {
